@@ -1,0 +1,3 @@
+pyTelegramBotAPI
+beautifulsoup4
+requests
