@@ -97,11 +97,11 @@ def send_alert(message):
                 cur = db.cursor()
                 if text[1].lower() == 'все':
                     for i in cur.execute("""SELECT student_id FROM students""").fetchall():
-                        bot.send_message(i[0], text[2])
+                        bot.send_message(i[0], ' '.join(text[2:]))
                 else:
                     for i in cur.execute("""SELECT student_id FROM students
                                             WHERE class = ?""", (text[1].upper(),)).fetchall():
-                        bot.send_message(i[0], text[2])
+                        bot.send_message(i[0], ' '.join(text[2:]))
             if text[1].upper() in ['5А', '5Б', '5В.csv', '5Г', '5Д', '6А', '6Б', '6В', '6Г', '7А', '7Б',
                                    '7В', '7Г', '8А', '8Б', '8В', '8Г',
                                    '9А', '9Б', '9В', '9Г', '10А', '11А', 'ВСЕ']:
