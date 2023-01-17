@@ -1,12 +1,18 @@
-import os
 import csv
-import telebot
-import requests
+import datetime as dt
+import os
 import sqlite3
+import requests
+import telebot
+import schedule
 import data
+import keep_alive
 
-from telebot import types
+from time import sleep
 from bs4 import BeautifulSoup
+from telebot import types
+from threading import Thread
+
 
 token = os.environ['TOKEN']
 bot = telebot.TeleBot(token, parse_mode=None)
@@ -31,6 +37,30 @@ def is_user_in_database(telegram_id):
         return False
 
 
+def mailing_checker():
+    while True:
+        schedule.run_pending()
+        sleep(1)
+
+
+def mail_next_lessons():
+    if dt.datetime.now().strftime("%A") in ("Saturday", "Sunday"):
+        return
+    with sqlite3.connect('school_db.sqlite') as db:
+        cur = db.cursor()
+        for i in cur.execute("""SELECT student_id, class, mailing FROM students""").fetchall():
+            if str(i[-1]) == '1':
+                with open(file=f'schedules/{i[1]}.csv', mode='r', encoding='utf-8') as csvfile:
+                    time = ['08:20', '09:10', '10:00', '10:50', '11:50', '12:40', '13:25']
+                    days = {"Monday": "Понедельник", "Tuesday": "Вторник", "Wednesday": "Среда", "Thursday": "Четверг",
+                            "Friday": "Пятница"}
+                    lesson_num = time.index(dt.datetime.now().strftime('%H:%M'))
+                    day = days[dt.datetime.now().strftime("%A")]
+                    reader = csv.DictReader(csvfile, delimiter=',')
+                    lesson = list(reader)[lesson_num][day]
+                    bot.send_message(i[0], f'Ваш следующий урок: {lesson}')
+
+
 def start_buttons(message):
     """Main buttons"""
     admin = is_user_admin(message.chat.id)
@@ -41,8 +71,12 @@ def start_buttons(message):
         cabinets = types.KeyboardButton("Кабинеты🚪")
         additional_lessons = types.KeyboardButton("Дополнительные занятия🗒")
         news = types.KeyboardButton("Новости📰")
+        mailing = types.KeyboardButton("Вкл/откл рассылку уроков📩")
         problem = types.KeyboardButton("Сообщить о проблеме❗")
-        markup.add(table, service, cabinets, additional_lessons, news, problem)
+        if not is_user_in_database(message.chat.id):
+            markup.add(table, service, cabinets, additional_lessons, news, problem)
+        else:
+            markup.add(table, service, cabinets, additional_lessons, news, mailing, problem)
         bot.send_message(message.chat.id, 'Выберите интересующую вас тему:', reply_markup=markup)
     else:
         user_in_database = is_user_in_database(message.chat.id)
@@ -53,9 +87,10 @@ def start_buttons(message):
             cabinets = types.KeyboardButton("Кабинеты🚪")
             additional_lessons = types.KeyboardButton("Дополнительные занятия🗒")
             news = types.KeyboardButton("Новости📰")
+            mailing = types.KeyboardButton("Вкл/откл рассылку уроков📩")
             problem = types.KeyboardButton("Сообщить о проблеме❗")
             db_delete = types.KeyboardButton("Удалить себя из базы данных🚫")
-            markup.add(table, service, cabinets, additional_lessons, news, problem, db_delete)
+            markup.add(table, service, cabinets, additional_lessons, news, mailing, problem, db_delete)
             bot.send_message(message.chat.id, 'Выберите интересующую вас тему:', reply_markup=markup)
         else:
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -237,6 +272,16 @@ def reply_message(message):
                 db.commit()
             bot.send_message(message.chat.id, 'Вы удалены из базы данных')
             start_buttons(message)
+        elif message.text == "Вкл/откл рассылку уроков📩":
+            if is_user_in_database(message.chat.id):
+                with sqlite3.connect('school_db.sqlite') as db:
+                    cur = db.cursor()
+                    mailing = cur.execute("""SELECT mailing FROM students WHERE student_id = ?""", (message.chat.id, )).fetchall()[0][0]
+                    if mailing == 0:
+                        bot.send_message(message.chat.id, "Вы включили рассылку уроков.\nТеперь в конце каждого урока я буду писать вам, какой урок следующий😉")
+                    else:
+                        bot.send_message(message.chat.id, "Вы отключили рассылку уроков.")
+                    cur.execute("""UPDATE students SET mailing = ? WHERE student_id = ?""", ((mailing + 1) % 2, message.chat.id,))
         else:
             bot.send_message(message.chat.id, 'Я вас не понимаю ☹')
     else:
@@ -257,4 +302,16 @@ def reply_message(message):
             bot.send_message(message.chat.id, 'Выберите класс: ', reply_markup=markup)
 
 
-bot.infinity_polling()
+if __name__ == "__main__":
+    schedule.every().day.at("08:20").do(mail_next_lessons)
+    schedule.every().day.at("09:10").do(mail_next_lessons)
+    schedule.every().day.at("10:00").do(mail_next_lessons)
+    schedule.every().day.at("10:50").do(mail_next_lessons)
+    schedule.every().day.at("11:50").do(mail_next_lessons)
+    schedule.every().day.at("12:40").do(mail_next_lessons)
+    schedule.every().day.at("13:25").do(mail_next_lessons)
+
+    Thread(target=mailing_checker).start()
+
+    keep_alive.keep_alive()
+    bot.infinity_polling()
