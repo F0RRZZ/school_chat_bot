@@ -12,9 +12,10 @@ from time import sleep
 from bs4 import BeautifulSoup
 from telebot import types
 from threading import Thread
+from telebot.apihelper import ApiTelegramException
 
 
-token = os.environ['TOKEN']
+token = os.environ["TOKEN"]
 bot = telebot.TeleBot(token, parse_mode=None)
 URL = "https://al-school.ru/category/новости/"
 
@@ -51,14 +52,24 @@ def mail_next_lessons():
         for i in cur.execute("""SELECT student_id, class, mailing FROM students""").fetchall():
             if str(i[-1]) == '1':
                 with open(file=f'schedules/{i[1]}.csv', mode='r', encoding='utf-8') as csvfile:
-                    time = ['08:20', '09:10', '10:00', '10:50', '11:50', '12:40', '13:25']
+                    time = ['05:20', '06:05', '06:55', '07:45', '08:45', '09:35', '10:20']
                     days = {"Monday": "Понедельник", "Tuesday": "Вторник", "Wednesday": "Среда", "Thursday": "Четверг",
                             "Friday": "Пятница"}
                     lesson_num = time.index(dt.datetime.now().strftime('%H:%M'))
                     day = days[dt.datetime.now().strftime("%A")]
                     reader = csv.DictReader(csvfile, delimiter=',')
                     lesson = list(reader)[lesson_num][day]
-                    bot.send_message(i[0], f'Ваш следующий урок: {lesson}')
+                    try:
+                        bot.send_message(i[0], f'Ваш следующий урок: {lesson}')
+                    except ApiTelegramException as e:
+                        if e.description == "Forbidden: bot was blocked by the user":
+                            print(
+                                "Attention please! The user {} has blocked the bot. I can't send anything to them".format(
+                                    i[0]))
+
+
+def function_to_run():
+    return mail_next_lessons()
 
 
 def start_buttons(message):
@@ -132,11 +143,23 @@ def send_alert(message):
                 cur = db.cursor()
                 if text[1].lower() == 'все':
                     for i in cur.execute("""SELECT student_id FROM students""").fetchall():
-                        bot.send_message(i[0], ' '.join(text[2:]))
+                        try:
+                            bot.send_message(i[0], ' '.join(text[2:]))
+                        except ApiTelegramException as e:
+                            if e.description == "Forbidden: bot was blocked by the user":
+                                print(
+                                    "Attention please! The user {} has blocked the bot. I can't send anything to them".format(
+                                        message.chat.id))
                 else:
                     for i in cur.execute("""SELECT student_id FROM students
                                             WHERE class = ?""", (text[1].upper(),)).fetchall():
-                        bot.send_message(i[0], ' '.join(text[2:]))
+                        try:
+                            bot.send_message(i[0], ' '.join(text[2:]))
+                        except ApiTelegramException as e:
+                            if e.description == "Forbidden: bot was blocked by the user":
+                                print(
+                                    "Attention please! The user {} has blocked the bot. I can't send anything to them".format(
+                                        message.chat.id))
             if text[1].upper() in ['5А', '5Б', '5В.csv', '5Г', '5Д', '6А', '6Б', '6В', '6Г', '7А', '7Б',
                                    '7В', '7Г', '8А', '8Б', '8В', '8Г',
                                    '9А', '9Б', '9В', '9Г', '10А', '11А', 'ВСЕ']:
@@ -303,13 +326,14 @@ def reply_message(message):
 
 
 if __name__ == "__main__":
-    schedule.every().day.at("08:20").do(mail_next_lessons)
-    schedule.every().day.at("09:10").do(mail_next_lessons)
-    schedule.every().day.at("10:00").do(mail_next_lessons)
-    schedule.every().day.at("10:50").do(mail_next_lessons)
-    schedule.every().day.at("11:50").do(mail_next_lessons)
-    schedule.every().day.at("12:40").do(mail_next_lessons)
-    schedule.every().day.at("13:25").do(mail_next_lessons)
+    # Время сдвинуто на 3 часа назад, потому что код заупскается в Великобритании
+    schedule.every().day.at("05:20").do(function_to_run)
+    schedule.every().day.at("06:05").do(function_to_run)
+    schedule.every().day.at("06:55").do(function_to_run)
+    schedule.every().day.at("07:45").do(function_to_run)
+    schedule.every().day.at("08:45").do(function_to_run)
+    schedule.every().day.at("09:35").do(function_to_run)
+    schedule.every().day.at("10:20").do(function_to_run)
 
     Thread(target=mailing_checker).start()
 
